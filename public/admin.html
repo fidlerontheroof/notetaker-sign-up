@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Notetaker Sign-Up — Admin</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="wrap">
+  <h1>Instructor Admin</h1>
+  <p class="subtitle">Full roster with names. Students never see this view.</p>
+
+  <div id="login-card" class="card">
+    <label for="password">Admin password</label>
+    <input type="password" id="password" />
+    <button id="login-btn">Log in</button>
+    <div id="login-error" class="error"></div>
+  </div>
+
+  <div id="admin-area" style="display:none;">
+    <div class="card" id="requests-card" style="display:none;">
+      <h2 style="margin-top:0; font-size:1.1rem;">Pending switch requests</h2>
+      <table>
+        <thead><tr><th>Student</th><th>From</th><th>To</th><th></th></tr></thead>
+        <tbody id="requests-body"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2 style="margin-top:0; font-size:1.1rem;">Add a class date</h2>
+      <label for="new-date">Date</label>
+      <input type="date" id="new-date" />
+      <label for="new-capacity">Capacity</label>
+      <input type="number" id="new-capacity" min="1" value="3" style="width:80px;" />
+      <button id="add-date-btn">Add date</button>
+      <div id="add-date-error" class="error"></div>
+    </div>
+
+    <div class="card">
+      <h2 style="margin-top:0; font-size:1.1rem;">Roster</h2>
+      <table>
+        <thead><tr><th>Date</th><th>Day</th><th>Capacity</th><th>Signed up</th><th></th></tr></thead>
+        <tbody id="roster-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <a class="admin-link" href="/">← Back to student sign-up</a>
+</div>
+
+<script src="admin.js"></script>
+</body>
+</html>
