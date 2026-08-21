@@ -17,9 +17,6 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 const PORT = process.env.PORT || 3000;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'changeme';
-
-const PORT = process.env.PORT || 3000;
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'changeme';
 // Separate credential for server-to-server calls from the call-list app.
 // Deliberately distinct from ADMIN_PASSWORD so the two apps can rotate
 // their shared secret independently of your own admin login.
