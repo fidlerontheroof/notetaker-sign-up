@@ -347,6 +347,26 @@ app.post('/api/admin/dates/remove', requireAdmin, async (req, res) => {
   }
 });
 
+// ---------- server-to-server route (for the call-list app) ----------
+// Deliberately separate from the /api/admin/* routes above: it uses its own
+// shared secret (CALL_LIST_API_KEY) rather than ADMIN_PASSWORD, and exposes
+// only the notetaker name(s) for a single requested date — not the full
+// roster, and never anyone's email.
+app.get('/api/notetaker-for-date', (req, res) => {
+  const suppliedKey = req.header('x-call-list-key');
+  if (!CALL_LIST_API_KEY || suppliedKey !== CALL_LIST_API_KEY) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const date = (req.query.date || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return res.status(400).json({ error: 'date must be in YYYY-MM-DD format' });
+  }
+  const data = readData();
+  const cls = data.classes.find((c) => c.date === date);
+  const names = cls ? cls.slots.map((s) => s.name) : [];
+  res.json({ date, names });
+});
+
 app.listen(PORT, () => {
   console.log(`Notetaker sign-up running on http://localhost:${PORT}`);
 });
