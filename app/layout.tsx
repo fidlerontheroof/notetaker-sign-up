@@ -1,9 +1,13 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "Class Notes Submission",
-  description: "Submit class notes for the shared notes page.",
+  title: 'Crim Pro Notes', // Must match your Google App Name exactly
+  description: 'A study and reference application for Criminal Procedure notes.', // Required clear explanation
+  openGraph: {
+    siteName: 'Crim Pro Notes', // Must match
+  }
 };
+
 
 export default function RootLayout({
   children,
@@ -16,3 +20,4 @@ export default function RootLayout({
     </html>
   );
 }
+
