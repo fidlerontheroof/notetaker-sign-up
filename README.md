@@ -1,173 +1,122 @@
-# Notetaker Sign-Up
+# Class Notes Intake
 
-A small, self-contained web app for note-taker sign-ups:
+Students submit notes → every submission waits in your private review queue
+→ you edit if needed, then approve to post it to a Google Doc for that
+class date, or reject it. No automated screening — you review everything.
 
-- Students see only open/filled counts per date — never other students' names
-- Each student can look up **their own** sign-up by email
-- Students can request a switch to another date (auto-swaps immediately if
-  there's room; otherwise queues as a pending request for you to approve)
-- You (the instructor) get a password-protected admin page with the full
-  roster, names included, plus a queue of pending switch requests to
-  approve or deny
+Notes live in a single Google Drive folder. Sharing that folder with
+students is handled manually by you in Drive's own Share dialog — the app
+just creates and updates the docs.
 
-No database server, no signup with a third party, no ads. It's plain
-Node.js + a JSON file for storage, so it's cheap/free to run and easy to
-inspect or modify.
+## Network reliability note
 
-## Running it locally
+The student submission form independently confirms a submission actually
+reached the server (not just that something responded), since some school
+network filters can intercept requests and return a fake success response.
+If that confirmation fails, students see a distinct warning telling them to
+try a different network and notify you — see `app/api/verify/route.ts` and
+the `unconfirmed` state in `app/page.tsx`.
 
-```bash
-npm install
-ADMIN_PASSWORD=pick-a-real-password node server.js
-```
+## Important: how to actually restrict access
 
-Then open `http://localhost:3000` (student page) and
-`http://localhost:3000/admin.html` (instructor page).
+Drive's "Restricted" sharing with specific people is only truly
+unforwardable if the person signs in with a matching Google account. If a
+student doesn't have one, Drive can fall back to a preview link that isn't
+tied to their identity — and that fallback link can effectively be passed
+along, defeating the point.
 
-## Email confirmations
+Since your students don't have school-issued Google accounts, the version
+that actually works: **have each student create a free Google account using
+their school email address** (anyone can register any existing email as a
+Google account login — it doesn't require Gmail or your school to issue
+one). Then in Drive's Share dialog, add each of those addresses under
+"specific people" with Viewer access, and leave general access set to
+**Restricted** (not "Anyone with the link"). That forces real sign-in to
+view, which is the only mechanism Drive has that can't just be forwarded.
 
-Students get an automatic email when they sign up, when a switch goes
-through, and when a switch request is left pending — each one includes a
-personal link back to "check my sign-up," so they don't have to remember
-their date. That same link is also shown directly on the student page
-after they sign up, with a Copy button, in case they'd rather bookmark
-it than dig through email later.
+## What's here
 
-Email is sent via **Resend's HTTPS API** rather than SMTP — most PaaS
-hosts (Railway included) block outbound SMTP ports by default, so raw
-SMTP tends to fail with connection timeouts no matter how correct your
-credentials are. Resend sends over plain HTTPS instead, which isn't
-blocked.
+- `/` — student-facing submission form
+- `/review` — your private review dashboard (password protected)
+- `/api/submit` — receives a submission and adds it to the review queue
+- `/api/verify` — confirms a submission actually landed in storage
+- `/api/review` — lists submissions awaiting review (instructor only)
+- `/api/approve` — approve (with optional edits) or reject a submission
+- `lib/google-drive.ts` — talks to the Google Drive & Docs APIs
+- `lib/store.ts` — storage (Upstash Redis in production, in-memory for local dev)
+- `scripts/setup-google-drive.ts` — one-time CLI setup (auth + folder creation)
 
-Email is **off by default** (the app still works fine without it — it
-just won't send anything, and logs a note to that effect). To turn it
-on:
+## One-time Google Cloud setup (before running the script below)
 
-1. Sign up at [resend.com](https://resend.com) (free tier covers small
-   class-sized volumes easily)
-2. Verify a sending domain in their dashboard — or, for quick testing
-   only, skip this and use their shared test address (see `FROM_EMAIL`
-   below), which only delivers to the email you signed up to Resend with
-3. Create an API key
-4. Set these environment variables when you run/deploy the app:
+1. Go to [console.cloud.google.com](https://console.cloud.google.com) and
+   create a new project (any name, e.g. "Class Notes Intake").
+2. Under **APIs & Services → Library**, enable both the **Google Drive API**
+   and the **Google Docs API**.
+3. Under **APIs & Services → OAuth consent screen** (or **Google Auth
+   Platform**), set it up as **External** and add yourself as a test user.
+4. Create an OAuth Client ID (type: Web application). Add `http://localhost`
+   as an Authorized redirect URI.
+5. Copy the **Client ID** and **Client Secret**.
 
-| Variable | Required? | Example |
-|---|---|---|
-| `RESEND_API_KEY` | yes, to enable email | `re_xxxxxxxx` |
-| `FROM_EMAIL` | no for testing, yes for real use | `Notetaker <notes@yourdomain.com>` |
-| `APP_URL` | strongly recommended | `https://your-app.up.railway.app` |
-| `ADMIN_EMAIL` | optional | `you@gmail.com` |
+## Setup
 
-Notes:
-- **`FROM_EMAIL`** defaults to Resend's shared test address
-  (`onboarding@resend.dev`), which is fine while you're the only one
-  testing sign-ups, but **won't deliver to real students** until you
-  verify your own domain in Resend and set `FROM_EMAIL` to an address on
-  it (e.g. `Notetaker <notes@yourdomain.com>`).
-- **`APP_URL`** is what turns the "check your sign-up" link in emails
-  into a real, clickable URL rather than a relative path — set it to
-  wherever you actually deploy this.
-- **`ADMIN_EMAIL`**, if set, sends *you* a heads-up whenever a switch
-  request can't auto-approve (i.e. the target date is full) and needs
-  your review in the admin panel.
-- If you'd rather use a different HTTPS-based provider (SendGrid,
-  Postmark, Mailgun), the swap is small — ask and I can adapt `mailer.js`.
+1. **Install dependencies**
 
-## Editing the class dates
+   ```bash
+   npm install
+   ```
 
-Open `store.js` and edit the `DEFAULT_CLASSES` array near the top — each
-entry is `[date, dayName]`. Capacity defaults to 3 per date; you can also
-change capacity per-date later from the admin page without touching code.
+2. **Copy the env file and fill in the Google credentials**
 
-**Note:** the date list is only used to *create* `data.json` the first
-time the app runs (in whichever directory `DATA_DIR` points to — see
-below). Once `data.json` exists, editing `store.js` won't change
-anything already created — delete `data.json` and restart if you want to
-reset to a fresh list (this also wipes any existing sign-ups, so only do
-this before students start signing up).
+   ```bash
+   cp .env.example .env.local
+   ```
 
-## Deploying to Railway
+3. **Run the one-time setup script**
 
-This app needs a **persistent volume** — `data.json` has to survive
-between requests, restarts, and redeploys. Railway supports this
-directly. Steps:
+   ```bash
+   npm run setup:google
+   ```
 
-1. **Push this folder to a GitHub repo** (a private repo is fine —
-   Railway just needs read access via GitHub).
+   Prints a `GOOGLE_REFRESH_TOKEN` and `GOOGLE_DRIVE_FOLDER_ID` — paste both
+   into `.env.local`.
 
-2. **Create the project.** In Railway: **New Project → Deploy from GitHub
-   repo** → pick your repo. Railway auto-detects Node.js (via its
-   Railpack build system) and reads `package.json` for the start command
-   (`node server.js`) — no Dockerfile needed.
+4. **Share the folder yourself in Drive** — see "Important: how to
+   actually restrict access" above.
 
-3. **Add a volume.** On the project canvas, right-click (or press ⌘K /
-   Ctrl+K for the Command Palette) → create a new **Volume**, attach it
-   to this service, and set its **mount path** to something like `/data`.
+5. **Fill in `REVIEW_PASSWORD`** with a real password.
 
-4. **Set environment variables** on the service (Settings → Variables):
+6. **Run locally**
 
-   | Variable | Value |
-   |---|---|
-   | `DATA_DIR` | `/data` (must match the volume's mount path from step 3) |
-   | `ADMIN_PASSWORD` | pick a real password — don't skip this |
-   | `APP_URL` | fill in *after* step 5, once you have your Railway domain |
-   | `RESEND_API_KEY`, `FROM_EMAIL`, `ADMIN_EMAIL` | only if you want confirmation emails — see the Email section above |
+   ```bash
+   npm run dev
+   ```
 
-   Railway also automatically sets `PORT` for you — the app already
-   reads `process.env.PORT`, so nothing to do there.
+## Deploying to Vercel
 
-5. **Generate a public domain.** Service → Settings → Networking →
-   **Generate Domain**. This gives you a URL like
-   `yourapp.up.railway.app` — go back and set `APP_URL` to this (step 4),
-   then redeploy so confirmation-email links point to the right place.
+1. Push this project to a GitHub repo, then import it in Vercel.
+2. Add every environment variable from `.env.local` in the Vercel
+   project's **Settings → Environment Variables**.
+3. Add a **Redis integration** (Storage tab → Marketplace → Upstash Redis)
+   so submissions persist between requests.
+4. Deploy. Share the root URL with students and keep `/review` + your
+   password to yourself.
 
-6. **Deploy.** Railway deploys automatically on push once connected; you
-   can also trigger a manual deploy from the dashboard. Share the domain
-   from step 5 with students; keep `/admin.html` on that same domain for
-   yourself.
+## How posting works
 
-A couple of things worth double-checking once it's live:
-- Sign up as a test student yourself and confirm `data.json` survives a
-  manual redeploy (push a trivial commit, redeploy, check your test
-  sign-up is still there) — this confirms the volume is actually wired
-  up correctly before real students start using it.
-- Railway's free trial credit runs out after 30 days; after that you're
-  on the Hobby plan (~$5/month) for an always-on service like this one.
+Each class date gets its own Google Doc, titled by the date the student
+enters — a seminar meeting multiple times a week still gets one doc per
+session. The first approved note for a date creates the doc; every note
+after that gets appended, separated by a divider.
 
-## Deploying elsewhere (Render, Fly.io, a VPS)
+## Things worth deciding as you use this
 
-Same idea as Railway: attach persistent storage, then set `DATA_DIR` to
-wherever that storage is mounted so `data.json` lands there instead of
-next to the code. Each host's process for attaching a disk/volume is
-different (and changes over time), so check that host's current docs —
-but the app-side steps are always: create the disk, note its mount path,
-set `DATA_DIR` to that path, set `ADMIN_PASSWORD` and `APP_URL`, deploy.
-
-This app is **not** a good fit for purely serverless hosts (Vercel
-serverless functions, AWS Lambda, Cloudflare Workers) — their filesystem
-resets between invocations, so `data.json` (and every sign-up in it)
-would vanish constantly. If you specifically want one of those, `store.js`
-would need to be swapped for a real hosted database instead — ask me and
-I can adapt it.
-
-## Security notes
-
-- The admin password is checked on every admin request via a header —
-  it's simple by design for a small class tool, but it does mean anyone
-  who has the password can see/edit everything. Don't reuse a password
-  you use elsewhere, and only share it if you add a co-admin.
-- Always deploy behind HTTPS (every host listed above provides this by
-  default) so the admin password isn't sent in plaintext over the network.
-- There's no email verification — a student could technically type in
-  someone else's email. If that's a concern, consider adding a check
-  against your actual class roster (I can add an allow-list of valid
-  student emails if you want).
-
-## What's not included (yet)
-
-- CSV export of the roster for your own records
-- Reminder emails before each date
-- Verification that a signed-up email actually belongs to an enrolled
-  student (see the security note above)
-
-Let me know if you want any of these added.
+- **Roster changes**: re-share the folder in Drive whenever students
+  add/drop.
+- **Anonymity**: student names are stored (for accountability) while a
+  submission is pending review, but never appear in the posted doc. Once
+  approved and posted, the record is deleted from Redis entirely.
+  Rejected submissions are kept (not deleted).
+- **Stale pending items**: no auto-expiration — submissions sit there
+  until you act.
+- **Security**: the review password is simple by design.
