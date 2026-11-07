@@ -46,6 +46,27 @@ async function loadAll() {
   ]);
   renderRoster(classes);
   renderRequests(requests, classes);
+  renderAssignForm(classes);
+}
+
+// email (lowercased) -> name, from everyone currently on the roster
+let knownStudents = {};
+
+function renderAssignForm(classes) {
+  knownStudents = {};
+  classes.forEach((c) => c.slots.forEach((s) => {
+    knownStudents[s.email.toLowerCase()] = { name: s.name, email: s.email };
+  }));
+  $('known-emails').innerHTML = Object.values(knownStudents)
+    .map((s) => `<option value="${s.email}">${s.name}</option>`).join('');
+
+  const sel = $('assign-date');
+  const prev = sel.value;
+  sel.innerHTML = classes.map((c) => {
+    const full = c.slots.length >= c.capacity;
+    return `<option value="${c.date}">${fmtDate(c.date)} (${c.day}) — ${c.slots.length}/${c.capacity}${full ? ' full' : ''}</option>`;
+  }).join('');
+  if (prev) sel.value = prev;
 }
 
 function renderRoster(classes) {
@@ -53,7 +74,7 @@ function renderRoster(classes) {
   body.innerHTML = '';
   classes.forEach((c) => {
     const names = c.slots.length
-      ? c.slots.map((s) => `${s.name} (${s.email})`).join('<br/>')
+      ? c.slots.map((s) => `${s.name} (${s.email})${s.assignedByAdmin ? ' <span style="color:var(--muted); font-size:0.8rem;">· added by you</span>' : ''}`).join('<br/>')
       : '<span style="color:#999;">— open —</span>';
     const tr = document.createElement('tr');
     tr.innerHTML = `
@@ -64,7 +85,7 @@ function renderRoster(classes) {
       </td>
       <td>${names}</td>
       <td>
-        ${c.slots.map((s) => `<button class="small danger" data-remove="${s.email}">Remove ${s.name}</button>`).join('<br/>')}
+        ${c.slots.map((s) => `<button class="small danger" data-remove="${s.email}" data-date="${c.date}">Remove ${s.name}</button>`).join('<br/>')}
         ${c.slots.length ? '<br/>' : ''}
         <button class="small danger" data-delete-date="${c.date}" ${c.slots.length ? 'disabled title="Move or remove students first"' : ''}>Delete date</button>
       </td>
@@ -105,11 +126,15 @@ function renderRoster(classes) {
 
   body.querySelectorAll('[data-remove]').forEach((btn) => {
     btn.addEventListener('click', async () => {
-      if (!confirm('Remove this student from their slot?')) return;
-      await adminFetch('/api/admin/remove', {
-        method: 'POST',
-        body: JSON.stringify({ email: btn.dataset.remove }),
-      });
+      if (!confirm(`Remove this student from ${fmtDate(btn.dataset.date)}?`)) return;
+      try {
+        await adminFetch('/api/admin/remove', {
+          method: 'POST',
+          body: JSON.stringify({ email: btn.dataset.remove, date: btn.dataset.date }),
+        });
+      } catch (err) {
+        alert(err.message);
+      }
       await loadAll();
     });
   });
@@ -171,6 +196,37 @@ $('add-date-btn').addEventListener('click', async () => {
     await loadAll();
   } catch (err) {
     $('add-date-error').textContent = err.message;
+  }
+});
+
+$('assign-email').addEventListener('input', () => {
+  const known = knownStudents[$('assign-email').value.trim().toLowerCase()];
+  if (known) $('assign-name').value = known.name;
+});
+
+$('assign-btn').addEventListener('click', async () => {
+  $('assign-error').textContent = '';
+  $('assign-success').textContent = '';
+  const email = $('assign-email').value.trim();
+  const name = $('assign-name').value.trim();
+  const date = $('assign-date').value;
+  if (!email || !date) {
+    $('assign-error').textContent = 'Enter an email and pick a date.';
+    return;
+  }
+  try {
+    const r = await adminFetch('/api/admin/assign', {
+      method: 'POST',
+      body: JSON.stringify({ email, name, date, notify: $('assign-notify').checked }),
+    });
+    $('assign-success').textContent =
+      `Added ${r.name} to ${fmtDate(r.date)} (${r.day}).` +
+      (r.overCapacity ? ' Note: that date is now over its capacity.' : '');
+    $('assign-email').value = '';
+    $('assign-name').value = '';
+    await loadAll();
+  } catch (err) {
+    $('assign-error').textContent = err.message;
   }
 });
 

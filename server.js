@@ -34,9 +34,27 @@ function publicView(data) {
   }));
 }
 
+function sameEmail(a, b) {
+  return a.toLowerCase() === b.toLowerCase();
+}
+
+// Any date the student holds — their own pick OR an instructor-assigned one.
 function findStudentClass(data, email) {
+  return data.classes.find((c) => c.slots.some((s) => sameEmail(s.email, email)));
+}
+
+// The date the student picked themselves. Slots the instructor added from
+// the admin page carry `assignedByAdmin: true` and are NOT the student's own,
+// so students can see them but can't switch or add to them.
+function findOwnClass(data, email) {
   return data.classes.find((c) =>
-    c.slots.some((s) => s.email.toLowerCase() === email.toLowerCase())
+    c.slots.some((s) => sameEmail(s.email, email) && !s.assignedByAdmin)
+  );
+}
+
+function findAssignedClasses(data, email) {
+  return data.classes.filter((c) =>
+    c.slots.some((s) => sameEmail(s.email, email) && s.assignedByAdmin)
   );
 }
 
@@ -61,10 +79,20 @@ app.get('/api/my-signup', (req, res) => {
   const email = (req.query.email || '').trim();
   if (!email) return res.status(400).json({ error: 'email is required' });
   const data = readData();
-  const cls = findStudentClass(data, email);
-  if (!cls) return res.json({ signedUp: false });
-  const mine = cls.slots.find((s) => s.email.toLowerCase() === email.toLowerCase());
-  res.json({ signedUp: true, date: cls.date, day: cls.day, name: mine.name });
+  const anyCls = findStudentClass(data, email);
+  if (!anyCls) return res.json({ signedUp: false });
+  const name = anyCls.slots.find((s) => sameEmail(s.email, email)).name;
+  const own = findOwnClass(data, email);
+  const assigned = findAssignedClasses(data, email).map((c) => ({ date: c.date, day: c.day }));
+  res.json({
+    signedUp: true,
+    name,
+    // `date`/`day` are the student's own pick (null if they only have
+    // instructor-assigned dates).
+    date: own ? own.date : null,
+    day: own ? own.day : null,
+    assigned,
+  });
 });
 
 // Sign up for a date. One active slot per student.
@@ -104,15 +132,24 @@ app.post('/api/switch-request', async (req, res) => {
   }
   try {
     const result = await withData((data) => {
-      const fromCls = findStudentClass(data, email);
-      if (!fromCls) throw new Error("You don't currently have a sign-up to switch from.");
+      const fromCls = findOwnClass(data, email);
+      if (!fromCls) {
+        throw new Error(
+          findStudentClass(data, email)
+            ? 'Your date was assigned by the instructor — please contact them to change it.'
+            : "You don't currently have a sign-up to switch from."
+        );
+      }
       if (fromCls.date === toDate) throw new Error("You're already signed up for that date.");
 
       const toCls = data.classes.find((c) => c.date === toDate);
       if (!toCls) throw new Error('That date was not found.');
+      if (toCls.slots.some((s) => sameEmail(s.email, email))) {
+        throw new Error("You're already assigned to that date.");
+      }
 
       const slotIndex = fromCls.slots.findIndex(
-        (s) => s.email.toLowerCase() === email.toLowerCase()
+        (s) => sameEmail(s.email, email) && !s.assignedByAdmin
       );
       const student = fromCls.slots[slotIndex];
 
@@ -198,10 +235,16 @@ app.post('/api/admin/switch-requests/:id/approve', requireAdmin, async (req, res
       const fromCls = data.classes.find((c) => c.date === reqItem.fromDate);
       const toCls = data.classes.find((c) => c.date === reqItem.toDate);
       if (fromCls) {
-        const idx = fromCls.slots.findIndex((s) => s.email.toLowerCase() === reqItem.email.toLowerCase());
+        const idx = fromCls.slots.findIndex(
+          (s) => sameEmail(s.email, reqItem.email) && !s.assignedByAdmin
+        );
         if (idx >= 0) fromCls.slots.splice(idx, 1);
       }
-      if (toCls) toCls.slots.push({ name: reqItem.name, email: reqItem.email });
+      if (toCls) {
+        const already = toCls.slots.find((s) => sameEmail(s.email, reqItem.email));
+        if (already) delete already.assignedByAdmin; // it's now their own pick
+        else toCls.slots.push({ name: reqItem.name, email: reqItem.email });
+      }
       reqItem.status = 'approved';
       return { ok: true, name: reqItem.name, email: reqItem.email, toDate: reqItem.toDate, toDay: toCls ? toCls.day : '' };
     });
@@ -240,15 +283,20 @@ app.post('/api/admin/switch-requests/:id/deny', requireAdmin, async (req, res) =
 
 // Manually move or remove a student (admin override), e.g. to resolve conflicts.
 app.post('/api/admin/move', requireAdmin, async (req, res) => {
-  const { email, toDate } = req.body || {};
+  const { email, toDate, fromDate } = req.body || {};
   try {
     const result = await withData((data) => {
-      const fromCls = findStudentClass(data, email);
+      const fromCls = fromDate
+        ? data.classes.find((c) => c.date === fromDate)
+        : findOwnClass(data, email) || findStudentClass(data, email);
       const toCls = data.classes.find((c) => c.date === toDate);
       if (!toCls) throw new Error('Target date not found');
+      if (toCls.slots.some((s) => sameEmail(s.email, email))) {
+        throw new Error('That student is already on the target date.');
+      }
       let student;
       if (fromCls) {
-        const idx = fromCls.slots.findIndex((s) => s.email.toLowerCase() === email.toLowerCase());
+        const idx = fromCls.slots.findIndex((s) => sameEmail(s.email, email));
         student = fromCls.slots[idx];
         fromCls.slots.splice(idx, 1);
       } else {
@@ -263,16 +311,58 @@ app.post('/api/admin/move', requireAdmin, async (req, res) => {
   }
 });
 
+// Remove a student from one date. Pass `date` so a student on two dates
+// (their own + an assigned one) is only removed from the one you clicked.
 app.post('/api/admin/remove', requireAdmin, async (req, res) => {
-  const { email } = req.body || {};
-  const result = await withData((data) => {
-    const cls = findStudentClass(data, email);
-    if (!cls) throw new Error('Student not found in any slot');
-    const idx = cls.slots.findIndex((s) => s.email.toLowerCase() === email.toLowerCase());
-    cls.slots.splice(idx, 1);
-    return { ok: true };
-  });
-  res.json(result);
+  const { email, date } = req.body || {};
+  try {
+    const result = await withData((data) => {
+      const cls = date
+        ? data.classes.find((c) => c.date === date)
+        : findStudentClass(data, email);
+      if (!cls) throw new Error('Student not found in any slot');
+      const idx = cls.slots.findIndex((s) => sameEmail(s.email, email));
+      if (idx === -1) throw new Error('Student not found on that date');
+      cls.slots.splice(idx, 1);
+      return { ok: true };
+    });
+    res.json(result);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Add a student to a date (on top of any date they already have).
+// Admin override: allowed even if the date is at capacity. The slot is
+// flagged `assignedByAdmin` so the student sees it but can't change it.
+app.post('/api/admin/assign', requireAdmin, async (req, res) => {
+  const email = (req.body?.email || '').trim();
+  const date = req.body?.date;
+  let name = (req.body?.name || '').trim();
+  try {
+    if (!email || !date) throw new Error('Email and date are required');
+    const result = await withData((data) => {
+      const cls = data.classes.find((c) => c.date === date);
+      if (!cls) throw new Error('Date not found');
+      if (cls.slots.some((s) => sameEmail(s.email, email))) {
+        throw new Error('That student is already on this date.');
+      }
+      if (!name) {
+        // reuse the name from their existing sign-up, if any
+        const existing = findStudentClass(data, email);
+        name = existing ? existing.slots.find((s) => sameEmail(s.email, email)).name : '';
+      }
+      if (!name) throw new Error("Enter the student's name (they have no existing sign-up to copy it from).");
+      cls.slots.push({ name, email, assignedByAdmin: true });
+      return { name, date: cls.date, day: cls.day, overCapacity: cls.slots.length > cls.capacity };
+    });
+    res.json({ ok: true, ...result });
+    if (req.body?.notify !== false) {
+      mailer.assignmentNotice({ to: email, name: result.name, date: result.date, day: result.day });
+    }
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
 });
 
 // Update capacity for a given date.

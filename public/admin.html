@@ -38,6 +38,24 @@
     </div>
 
     <div class="card">
+      <h2 style="margin-top:0; font-size:1.1rem;">Add a student to a date</h2>
+      <p class="subtitle" style="margin-bottom:0;">Adds them on top of any date they already have. They'll see it on their sign-up page but can't change it or add dates themselves.</p>
+      <label for="assign-email">Student email</label>
+      <input type="email" id="assign-email" list="known-emails" placeholder="student@school.edu" />
+      <datalist id="known-emails"></datalist>
+      <label for="assign-name">Name <span style="font-weight:400; color:var(--muted);">(filled in automatically if they've already signed up)</span></label>
+      <input type="text" id="assign-name" />
+      <label for="assign-date">Date</label>
+      <select id="assign-date"></select>
+      <label style="font-weight:400; display:flex; gap:8px; align-items:center;">
+        <input type="checkbox" id="assign-notify" checked style="width:auto;" /> Email the student
+      </label>
+      <button id="assign-btn">Add to date</button>
+      <div id="assign-error" class="error"></div>
+      <div id="assign-success" class="success"></div>
+    </div>
+
+    <div class="card">
       <h2 style="margin-top:0; font-size:1.1rem;">Roster</h2>
       <table>
         <thead><tr><th>Date</th><th>Day</th><th>Capacity</th><th>Signed up</th><th></th></tr></thead>

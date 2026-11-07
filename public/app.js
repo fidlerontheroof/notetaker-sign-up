@@ -1,5 +1,7 @@
 let currentEmail = '';
-let mySignup = null; // { date, day, name } or null
+let mySignup = null; // { date, day, name, assigned: [{date, day}] } or null
+// date/day = the student's own pick (null if they only have instructor-assigned
+// dates); assigned = dates the instructor added, shown read-only.
 let mode = 'signup'; // 'signup' | 'switch'
 let allDates = [];
 
@@ -36,10 +38,24 @@ function renderStatus() {
   area.innerHTML = '';
   if (mySignup) {
     const bookmarkUrl = `${window.location.origin}/?email=${encodeURIComponent(currentEmail)}`;
+    const assigned = mySignup.assigned || [];
+    const assignedText = assigned.map((a) => `${fmtDate(a.date)} (${a.day})`).join(', ');
+    let headline = '';
+    if (mySignup.date) {
+      headline = `<strong>You're signed up for ${fmtDate(mySignup.date)} (${mySignup.day}).</strong>`;
+      if (assigned.length) {
+        headline += `<div style="margin-top:6px;"><strong>Your instructor also added you for ${assignedText}.</strong></div>`;
+      }
+    } else {
+      headline = `<strong>Your instructor added you for ${assignedText}.</strong>`;
+    }
+    if (assigned.length) {
+      headline += `<div style="margin-top:4px; font-size:0.85rem; color:var(--muted);">Instructor-added dates can't be changed here — contact your instructor if you can't make ${assigned.length > 1 ? 'one of them' : 'it'}.</div>`;
+    }
     const div = document.createElement('div');
     div.className = 'status-banner';
     div.innerHTML = `
-      <strong>You're signed up for ${fmtDate(mySignup.date)} (${mySignup.day}).</strong>
+      ${headline}
       <div style="margin-top:10px; font-size:0.85rem; color:var(--muted);">
         Bookmark this link to check your date again anytime (it's also in your confirmation email):
       </div>
@@ -47,16 +63,18 @@ function renderStatus() {
         <input type="text" readonly value="${bookmarkUrl}" id="bookmark-input" style="font-size:0.8rem;" />
         <button class="small secondary" id="copy-link-btn" style="margin-top:0; white-space:nowrap;">Copy</button>
       </div>
-      <div style="margin-top:8px;">
-        <button class="secondary small" id="switch-btn">Request a different date</button>
-      </div>
+      ${mySignup.date ? `<div style="margin-top:8px;">
+        <button class="secondary small" id="switch-btn">Request a different date for ${fmtDate(mySignup.date)}</button>
+      </div>` : ''}
     `;
     area.appendChild(div);
-    $('switch-btn').addEventListener('click', () => {
-      mode = 'switch';
-      $('signup-card').style.display = 'block';
-      renderDatesList();
-    });
+    if (mySignup.date) {
+      $('switch-btn').addEventListener('click', () => {
+        mode = 'switch';
+        $('signup-card').style.display = 'block';
+        renderDatesList();
+      });
+    }
     $('copy-link-btn').addEventListener('click', () => {
       const input = $('bookmark-input');
       input.select();
@@ -90,14 +108,15 @@ function renderDatesList() {
 
   allDates.forEach((c) => {
     const isMine = mySignup && mySignup.date === c.date;
+    const isAssigned = !!(mySignup && (mySignup.assigned || []).some((a) => a.date === c.date));
     const isFull = c.filled >= c.capacity;
     // In normal sign-up mode, a full date really can't be picked.
     // In switch mode, a full date CAN be picked — it just becomes a
     // pending request instead of an instant swap, so it must stay clickable.
-    const isBlocked = isMine || (isFull && mode === 'signup');
+    const isBlocked = isMine || isAssigned || (isFull && mode === 'signup');
     const row = document.createElement('div');
     row.className = 'date-row';
-    const label = isMine ? 'Current' : isFull ? (mode === 'switch' ? 'Request' : 'Full') : 'Select';
+    const label = isMine ? 'Current' : isAssigned ? 'Assigned' : isFull ? (mode === 'switch' ? 'Request' : 'Full') : 'Select';
     row.innerHTML = `
       <div class="date-main">
         <span>${fmtDate(c.date)}</span>

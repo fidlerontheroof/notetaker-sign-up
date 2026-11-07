@@ -140,6 +140,24 @@ function switchDenied({ to, name, fromDate, toDate }) {
   return sendMail({ to, subject, text, html });
 }
 
+function assignmentNotice({ to, name, date, day }) {
+  const link = checkLink(to);
+  const subject = `Added as notetaker: ${date} (${day})`;
+  const text =
+    `Hi ${name},\n\n` +
+    `Your instructor has added you as notetaker for ${date} (${day}). ` +
+    `This is in addition to any date you already signed up for.\n\n` +
+    `You can see your dates any time here:\n${link}\n\n` +
+    `If you can't make this date, please contact your instructor.`;
+  const html =
+    `<p>Hi ${escapeHtml(name)},</p>` +
+    `<p>Your instructor has added you as notetaker for <strong>${escapeHtml(date)} (${escapeHtml(day)})</strong>. ` +
+    `This is in addition to any date you already signed up for.</p>` +
+    `<p>You can see your dates any time here:<br><a href="${link}">${link}</a></p>` +
+    `<p style="color:#777;font-size:0.9em;">If you can't make this date, please contact your instructor.</p>`;
+  return sendMail({ to, subject, text, html });
+}
+
 async function notifyAdminOfPendingRequest({ studentName, studentEmail, fromDate, toDate }) {
   const adminEmail = process.env.ADMIN_EMAIL;
   if (!adminEmail) return { sent: false };
@@ -165,6 +183,7 @@ module.exports = {
   switchConfirmation,
   switchPending,
   switchDenied,
+  assignmentNotice,
   notifyAdminOfPendingRequest,
   checkLink,
 };
